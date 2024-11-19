@@ -1,176 +1,209 @@
 import os
-import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 import random
-from typing import Tuple, List
-import cv2
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from typing import List, Tuple
+import shutil
+import glob
 
 class STAMDatasetGenerator:
-    def __init__(self, output_dir: str = "dataset"):
-        """
-        Initialize the STAM dataset generator
+    def __init__(self, output_dir: str):
+        """Initialize the dataset generator
         
         Args:
-            output_dir (str): Directory to save generated images
+            output_dir (str): Directory to save the generated dataset
         """
         self.output_dir = output_dir
-        self.image_size = (128, 128)
-        self.background_color = (255, 255, 255)  # White
-        self.text_color = (0, 0, 0)  # Black
-        
-        # Create output directories
-        os.makedirs(output_dir, exist_ok=True)
-        for char in self.get_hebrew_letters():
-            os.makedirs(os.path.join(output_dir, char), exist_ok=True)
-    
-    @staticmethod
-    def get_hebrew_letters() -> List[str]:
-        """Get list of Hebrew letters used in STAM"""
-        return [
+        self.hebrew_letters = [
             'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט', 'י',
             'כ', 'ך', 'ל', 'מ', 'ם', 'נ', 'ן', 'ס', 'ע', 'פ',
             'ף', 'צ', 'ץ', 'ק', 'ר', 'ש', 'ת'
         ]
-    
-    def apply_random_noise(self, image: Image.Image) -> Image.Image:
-        """Add random noise to image"""
-        img_array = np.array(image)
-        noise = np.random.normal(0, 25, img_array.shape)
-        noisy_img = np.clip(img_array + noise, 0, 255).astype(np.uint8)
-        return Image.fromarray(noisy_img)
-    
-    def apply_random_blur(self, image: Image.Image) -> Image.Image:
-        """Apply random Gaussian blur"""
-        radius = random.uniform(0, 1.5)
-        return image.filter(ImageFilter.GaussianBlur(radius))
-    
-    def apply_random_rotation(self, image: Image.Image) -> Image.Image:
-        """Apply random rotation"""
-        angle = random.uniform(-5, 5)
-        return image.rotate(angle, expand=True)
-    
-    def apply_random_perspective(self, image: Image.Image) -> Image.Image:
-        """Apply random perspective transformation"""
-        width, height = image.size
         
-        # Define perspective coefficients
-        coeffs = [
-            random.uniform(-0.1, 0.1) for _ in range(8)
-        ]
+        # Default font sizes for different fonts
+        self.font_sizes = {
+            'regular': 100,
+            'small': 80,
+            'large': 120
+        }
+
+    def load_fonts(self, font_dir: str) -> List[Tuple[ImageFont.FreeTypeFont, str]]:
+        """Load all STAM TTF fonts from the specified directory
         
-        # Apply perspective transform
-        return image.transform(
-            (width, height),
-            Image.PERSPECTIVE,
-            coeffs,
-            Image.BICUBIC
-        )
-    
-    def apply_random_quality(self, image: Image.Image) -> Image.Image:
-        """Randomly reduce image quality"""
-        # Random JPEG compression
-        quality = random.randint(60, 95)
-        temp_path = f"temp_{random.randint(0, 999999)}.jpg"
-        try:
-            image.save(temp_path, "JPEG", quality=quality)
-            image = Image.open(temp_path)
-            return image
-        finally:
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except OSError:
-                    pass
-    
-    def generate_letter_image(
-        self, 
-        letter: str, 
-        font_path: str,
-        font_size: int = 80
-    ) -> Image.Image:
-        """Generate base image with letter"""
+        Args:
+            font_dir (str): Directory containing STAM fonts
+            
+        Returns:
+            List[Tuple[ImageFont.FreeTypeFont, str]]: List of (font, font_name) tuples
+        """
+        fonts = []
+        # Look for all TTF files
+        font_files = glob.glob(os.path.join(font_dir, "*.ttf"))
+        
+        # Filter for fonts starting with STAM
+        stam_fonts = [f for f in font_files if os.path.basename(f).upper().startswith('STAM')]
+        
+        if not stam_fonts:
+            raise ValueError(f"No STAM fonts found in {font_dir}")
+            
+        print(f"Found {len(stam_fonts)} STAM fonts:")
+        for font_path in stam_fonts:
+            print(f"  - {os.path.basename(font_path)}")
+            
+        for font_path in stam_fonts:
+            font_name = os.path.splitext(os.path.basename(font_path))[0]
+            try:
+                # Load font in different sizes
+                for size_name, size in self.font_sizes.items():
+                    font = ImageFont.truetype(font_path, size)
+                    fonts.append((font, f"{font_name}_{size_name}"))
+                    print(f"    Loaded {font_name} in {size_name} size ({size}px)")
+            except Exception as e:
+                print(f"Warning: Could not load font {font_path}: {str(e)}")
+                
+        if not fonts:
+            raise ValueError("No usable STAM fonts were loaded")
+            
+        return fonts
+
+    def generate_letter_image(self, letter: str, font: ImageFont.FreeTypeFont) -> Image.Image:
+        """Generate base image with letter
+        
+        Args:
+            letter (str): Hebrew letter to generate
+            font (ImageFont.FreeTypeFont): Font to use for the letter
+            
+        Returns:
+            Image.Image: Base image with the letter
+        """
         # Create image with padding
         padding = 20
-        size = (font_size + padding * 2, font_size + padding * 2)
+        size = (font.getsize(letter)[0] + padding * 2, font.getsize(letter)[1] + padding * 2)
         image = Image.new('L', size, 255)
         draw = ImageDraw.Draw(image)
         
-        # Load font and draw letter
-        try:
-            font = ImageFont.truetype(font_path, font_size)
-        except OSError:
-            raise ValueError(f"Could not load font at {font_path}")
-        
         # Center the letter
-        bbox = draw.textbbox((0, 0), letter, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        x = (size[0] - text_width) // 2
-        y = (size[1] - text_height) // 2
+        x = (size[0] - font.getsize(letter)[0]) // 2
+        y = (size[1] - font.getsize(letter)[1]) // 2
         
         draw.text((x, y), letter, font=font, fill=0)
         return image
-    
-    def generate_dataset(
-        self,
-        font_path: str,
-        samples_per_letter: int = 1000
-    ):
-        """
-        Generate dataset with variations for each letter
+
+    def apply_random_distortions(self, image: Image.Image) -> Image.Image:
+        """Apply random distortions to the image
         
         Args:
-            font_path (str): Path to STAM font file
-            samples_per_letter (int): Number of samples to generate per letter
-        """
-        letters = self.get_hebrew_letters()
-        
-        for letter in letters:
-            print(f"Generating samples for letter {letter}")
-            letter_dir = os.path.join(self.output_dir, letter)
+            image (Image.Image): Image to distort
             
-            for i in range(samples_per_letter):
-                # Generate base image
-                image = self.generate_letter_image(letter, font_path)
-                
-                # Apply random transformations
-                if random.random() > 0.3:
-                    image = self.apply_random_rotation(image)
-                if random.random() > 0.3:
-                    image = self.apply_random_perspective(image)
-                if random.random() > 0.3:
-                    image = self.apply_random_blur(image)
-                if random.random() > 0.3:
-                    image = self.apply_random_noise(image)
-                if random.random() > 0.3:
-                    image = self.apply_random_quality(image)
-                
-                # Resize to final size
-                image = image.resize(self.image_size, Image.LANCZOS)
-                
-                # Save image
-                image.save(os.path.join(letter_dir, f"{letter}_{i}.png"))
+        Returns:
+            Image.Image: Distorted image
+        """
+        # Apply random rotation
+        if random.random() > 0.3:
+            angle = random.uniform(-3, 3)
+            image = image.rotate(angle, expand=True)
         
-        print("Dataset generation complete!")
+        # Apply random perspective transformation
+        if random.random() > 0.3:
+            width, height = image.size
+            coeffs = [random.uniform(-0.05, 0.05) for _ in range(8)]
+            image = image.transform((width, height), Image.PERSPECTIVE, coeffs, Image.BICUBIC)
+        
+        # Apply random blur
+        if random.random() > 0.3:
+            radius = random.uniform(0, 0.8)
+            image = image.filter(ImageFilter.GaussianBlur(radius))
+        
+        # Apply random noise
+        if random.random() > 0.3:
+            img_array = np.array(image)
+            noise = np.random.normal(0, 10, img_array.shape)
+            noisy_img = np.clip(img_array + noise, 0, 255).astype(np.uint8)
+            image = Image.fromarray(noisy_img)
+        
+        # Randomly reduce image quality
+        if random.random() > 0.3:
+            quality = random.randint(75, 95)
+            temp_path = f"temp_{random.randint(0, 999999)}.jpg"
+            try:
+                image.save(temp_path, "JPEG", quality=quality)
+                image = Image.open(temp_path)
+            finally:
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
+        
+        return image
+
+    def generate_dataset(self, font_dir: str, samples_per_letter: int = 1000):
+        """Generate the dataset using multiple fonts
+        
+        Args:
+            font_dir (str): Directory containing STAM fonts
+            samples_per_letter (int): Number of samples to generate per letter per font
+        """
+        # Clear and create output directory
+        if os.path.exists(self.output_dir):
+            shutil.rmtree(self.output_dir)
+        os.makedirs(self.output_dir)
+        
+        # Load all fonts
+        fonts = self.load_fonts(font_dir)
+        print(f"Loaded {len(fonts)} font variations")
+        
+        # Generate samples for each letter with each font
+        total_samples = len(self.hebrew_letters) * len(fonts) * samples_per_letter
+        current_sample = 0
+        
+        for letter in self.hebrew_letters:
+            # Create directory for this letter
+            letter_dir = os.path.join(self.output_dir, letter)
+            os.makedirs(letter_dir, exist_ok=True)
+            
+            for font, font_name in fonts:
+                for i in range(samples_per_letter):
+                    current_sample += 1
+                    if current_sample % 100 == 0:
+                        print(f"Generating sample {current_sample}/{total_samples}")
+                    
+                    # Generate base image
+                    image = self.generate_letter_image(letter, font)
+                    
+                    # Apply random distortions
+                    image = self.apply_random_distortions(image)
+                    
+                    # Save the image
+                    filename = f"{letter}_{font_name}_{i:04d}.png"
+                    image.save(os.path.join(letter_dir, filename))
 
 if __name__ == "__main__":
     try:
         # Example usage
         generator = STAMDatasetGenerator("stam_dataset")
         
-        # Check if font exists
-        font_path = "C:/Windows/Fonts/STAM1.ttf"
-        if not os.path.exists(font_path):
-            print(f"Error: Font file not found at {font_path}")
-            print("Please ensure you have installed a STAM font and provided the correct path.")
+        # Check if font directory exists
+        font_dir = "C:/Windows/Fonts"
+        if not os.path.exists(font_dir):
+            print(f"Error: Font directory not found at {font_dir}")
+            print("Please ensure you have installed STAM fonts and provided the correct path.")
             exit(1)
             
         # Generate dataset
-        print(f"Starting dataset generation using font: {font_path}")
+        print(f"\nStarting dataset generation:")
+        print(f"1. Looking for STAM fonts in: {font_dir}")
+        print(f"2. Will generate variations in sizes: {', '.join(f'{k}={v}px' for k,v in generator.font_sizes.items())}")
+        print(f"3. Output directory: {generator.output_dir}\n")
+        
         generator.generate_dataset(
-            font_path=font_path,
+            font_dir=font_dir,
             samples_per_letter=1000
         )
+        
+        print("\nDataset generation complete!")
+        print(f"Output directory: {os.path.abspath(generator.output_dir)}")
+        
     except Exception as e:
-        print(f"Error during dataset generation: {str(e)}")
+        print(f"\nError during dataset generation: {str(e)}")
         exit(1)
