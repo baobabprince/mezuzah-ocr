@@ -28,7 +28,7 @@ class STAMDatasetGenerator:
         }
 
     def load_fonts(self, font_dir: str) -> List[Tuple[ImageFont.FreeTypeFont, str]]:
-        """Load all STAM TTF fonts from the specified directory
+        """Load only STAM TTF fonts from the specified directory
         
         Args:
             font_dir (str): Directory containing STAM fonts
@@ -37,16 +37,14 @@ class STAMDatasetGenerator:
             List[Tuple[ImageFont.FreeTypeFont, str]]: List of (font, font_name) tuples
         """
         fonts = []
-        # Look for all TTF files
-        font_files = glob.glob(os.path.join(font_dir, "*.ttf"))
-        
-        # Filter for fonts starting with STAM
-        stam_fonts = [f for f in font_files if os.path.basename(f).upper().startswith('STAM')]
+        # Look specifically for STAM*.ttf files
+        stam_fonts = glob.glob(os.path.join(font_dir, "STAM*.ttf"))
+        stam_fonts.extend(glob.glob(os.path.join(font_dir, "stam*.ttf")))  # Also check lowercase
         
         if not stam_fonts:
-            raise ValueError(f"No STAM fonts found in {font_dir}")
+            raise ValueError(f"No STAM fonts found in {font_dir}. Please make sure you have fonts that start with 'STAM'")
             
-        print(f"Found {len(stam_fonts)} STAM fonts:")
+        print(f"\nFound {len(stam_fonts)} STAM fonts:")
         for font_path in stam_fonts:
             print(f"  - {os.path.basename(font_path)}")
             
@@ -62,7 +60,7 @@ class STAMDatasetGenerator:
                 print(f"Warning: Could not load font {font_path}: {str(e)}")
                 
         if not fonts:
-            raise ValueError("No usable STAM fonts were loaded")
+            raise ValueError("No usable STAM fonts were loaded. Please check if your STAM fonts are valid TTF files.")
             
         return fonts
 
