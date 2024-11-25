@@ -37,9 +37,15 @@ class STAMDatasetGenerator:
             List[Tuple[ImageFont.FreeTypeFont, str]]: List of (font, font_name) tuples
         """
         fonts = []
-        # Look specifically for STAM*.ttf files
-        stam_fonts = glob.glob(os.path.join(font_dir, "STAM*.ttf"))
-        stam_fonts.extend(glob.glob(os.path.join(font_dir, "stam*.ttf")))  # Also check lowercase
+        # Get all TTF files
+        all_fonts = glob.glob(os.path.join(font_dir, "*.ttf"))
+        
+        # Filter for fonts starting with STAM (case insensitive)
+        stam_fonts = []
+        for font_path in all_fonts:
+            font_name = os.path.basename(font_path).upper()
+            if font_name.startswith('STAM'):
+                stam_fonts.append(font_path)
         
         if not stam_fonts:
             raise ValueError(f"No STAM fonts found in {font_dir}. Please make sure you have fonts that start with 'STAM'")
@@ -88,7 +94,7 @@ class STAMDatasetGenerator:
         return image
 
     def apply_random_distortions(self, image: Image.Image) -> Image.Image:
-        """Apply random distortions to the image
+        """Apply subtle random distortions to the image
         
         Args:
             image (Image.Image): Image to distort
@@ -96,32 +102,32 @@ class STAMDatasetGenerator:
         Returns:
             Image.Image: Distorted image
         """
-        # Apply random rotation
-        if random.random() > 0.3:
-            angle = random.uniform(-3, 3)
+        # Apply random rotation (reduced from ±3° to ±1.5°)
+        if random.random() > 0.5:
+            angle = random.uniform(-1.5, 1.5)
             image = image.rotate(angle, expand=True)
         
-        # Apply random perspective transformation
-        if random.random() > 0.3:
+        # Apply random perspective transformation (reduced from ±0.05 to ±0.02)
+        if random.random() > 0.5:
             width, height = image.size
-            coeffs = [random.uniform(-0.05, 0.05) for _ in range(8)]
+            coeffs = [random.uniform(-0.02, 0.02) for _ in range(8)]
             image = image.transform((width, height), Image.PERSPECTIVE, coeffs, Image.BICUBIC)
         
-        # Apply random blur
-        if random.random() > 0.3:
-            radius = random.uniform(0, 0.8)
+        # Apply random blur (reduced from 0-0.8 to 0-0.4)
+        if random.random() > 0.5:
+            radius = random.uniform(0, 0.4)
             image = image.filter(ImageFilter.GaussianBlur(radius))
         
-        # Apply random noise
-        if random.random() > 0.3:
+        # Apply random noise (reduced from 0-10 to 0-5)
+        if random.random() > 0.5:
             img_array = np.array(image)
-            noise = np.random.normal(0, 10, img_array.shape)
+            noise = np.random.normal(0, 5, img_array.shape)
             noisy_img = np.clip(img_array + noise, 0, 255).astype(np.uint8)
             image = Image.fromarray(noisy_img)
         
-        # Randomly reduce image quality
-        if random.random() > 0.3:
-            quality = random.randint(75, 95)
+        # Randomly reduce image quality (increased from 75-95 to 85-98)
+        if random.random() > 0.5:
+            quality = random.randint(85, 98)
             temp_path = f"temp_{random.randint(0, 999999)}.jpg"
             try:
                 image.save(temp_path, "JPEG", quality=quality)
@@ -182,7 +188,7 @@ if __name__ == "__main__":
         generator = STAMDatasetGenerator("stam_dataset")
         
         # Check if font directory exists
-        font_dir = "C:/Windows/Fonts"
+        font_dir = "C:/Users/Owner/CascadeProjects/windsurf-project/mezuzah_ocr/fonts"
         if not os.path.exists(font_dir):
             print(f"Error: Font directory not found at {font_dir}")
             print("Please ensure you have installed STAM fonts and provided the correct path.")
